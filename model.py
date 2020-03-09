@@ -2,6 +2,9 @@ from math import pi
 
 import matplotlib.pyplot as plt
 import matplotlib
+import scipy.integrate as integrate
+import scipy.interpolate as interpolate
+import numpy as np
 
 LengthBetweenElectrodesDefault = 12.0
 LampRadiusDefault = 0.35
@@ -12,14 +15,27 @@ VoltageDefault = 1400.0
 CurrentDefault = 0.5
 EdgeTemperature = 2000.0
 TimeDefault = 0.0
-TimeEndDefault = 600. * 1e-5
+TimeEndDefault = 600. * 1e-6
 TimeStep = 1.e-6
+
+
+def log_interp1d(xx, yy):
+    logx = np.log10(xx)
+    logy = np.log10(yy)
+    lin_interp = interpolate.interp1d(logx, logy, fill_value='extrapolate')
+    log_interp = lambda dd: np.power(10.0, lin_interp(np.log10(dd)))
+    return log_interp
+
 
 currents = [0.5, 1., 5., 10., 50., 200., 400., 800., 1200.]
 temperatures_for_currents = [6400, 6790, 7150, 7270, 8010, 9185, 10010, 11140, 12010]
 m_powers = [0.4, 0.55, 1.7, 3, 11, 32, 40, 41, 39]
+current_temperature_interp = log_interp1d(currents, temperatures_for_currents)
+current_m_interp = log_interp1d(currents, m_powers)
+
 temperatures_for_resistance = [4000, 5000, 6000, 7000, 8000, 9000, 10000, 11000, 12000, 13000, 14000]
 resistances = [0.031, 0.27, 2.05, 6.06, 12.0, 19.9, 29.6, 41.1, 54.1, 67.7, 81.5]
+temperature_resistance_interp = log_interp1d(temperatures_for_resistance, resistances)
 
 
 def current_temperature_dataset():
@@ -36,11 +52,6 @@ def length_between_electrodes():
 
 def lamp_radius():
     return LampRadiusDefault
-
-
-def lamp_resistance(current):
-    length = length_between_electrodes()
-    radius = lamp_radius()
 
 
 def resistance_static():
@@ -63,15 +74,40 @@ def time_end():
     return TimeEndDefault
 
 
+def temperature(z, current):
+    m = current_m_interp(abs(current))
+    T0 = current_temperature_interp(abs(current))
+    return T0 + (EdgeTemperature - T0) * (z ** m)
+
+
+def sigma_temperature(temperature):
+    return temperature_resistance_interp(temperature)
+
+
+def sigma(z, current):
+    return sigma_temperature(temperature(z, current))
+
+
+def resistance(z, current):
+    return sigma(z, current) * z
+
+
+def lamp_resistance(current):
+    length = length_between_electrodes()
+    radius = lamp_radius()
+
+    return length / (2. * pi * radius * radius * integrate.quad(resistance, 0., 1., args=(current))[0])
+
+
 def initial_vector():
     return [CurrentDefault,
             VoltageDefault]
 
 
-def vector_function(time, current, voltage, lr=0):
+def vector_function(time, current, voltage):
     # print("Current: ", current)
     # print("Voltage ", voltage)
-    return [(voltage - current * (resistance_static() + lr)) / inductance(),
+    return [(voltage - current * (resistance_static() + lamp_resistance(current))) / inductance(),
             -current / capacity()]
 
 
@@ -109,6 +145,7 @@ def runge_kutta_4():
         res_timeline.append(t)
         res_currents.append(prev[0])
         res_voltages.append(prev[1])
+        print(t)
     return res_timeline, res_currents, res_voltages
 
 
