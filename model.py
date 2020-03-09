@@ -1,11 +1,9 @@
 from math import pi
 
-import matplotlib.pyplot as plt
-import matplotlib
-import scipy.integrate as integrate
 import scipy.interpolate as interpolate
 import numpy as np
 
+Mode = 1
 LengthBetweenElectrodesDefault = 12.0
 LampRadiusDefault = 0.35
 InductanceDefault = 187 * 1e-6
@@ -17,6 +15,7 @@ EdgeTemperature = 2000.0
 TimeDefault = 0.0
 TimeEndDefault = 600. * 1e-6
 TimeStep = 1.e-6
+UsingGas = True
 
 
 def log_interp1d(xx, yy):
@@ -25,6 +24,17 @@ def log_interp1d(xx, yy):
     lin_interp = interpolate.interp1d(logx, logy, fill_value='extrapolate')
     log_interp = lambda dd: np.power(10.0, lin_interp(np.log10(dd)))
     return log_interp
+
+
+z_axis = np.linspace(0., 1., 51)
+
+
+def simps(f, a, b, N, current):
+    dx = (b - a) / N
+    x = z_axis
+    y = f(x, current)
+    S = dx / 3 * np.sum(y[0:-1:2] + 4 * y[1::2] + y[2::2])
+    return S
 
 
 currents = [0.5, 1., 5., 10., 50., 200., 400., 800., 1200.]
@@ -89,14 +99,19 @@ def sigma(z, current):
 
 
 def resistance(z, current):
-    return sigma(z, current) * z
+    res = []
+    for item in z:
+        res.append(sigma(item, current) * item)
+    return res
 
 
 def lamp_resistance(current):
-    length = length_between_electrodes()
-    radius = lamp_radius()
-
-    return length / (2. * pi * radius * radius * integrate.quad(resistance, 0., 1., args=(current))[0])
+    if UsingGas:
+        length = length_between_electrodes()
+        radius = lamp_radius()
+        return length / (2. * pi * radius * radius * simps(resistance, 0., 1., 50, current))
+    else:
+        return 0.
 
 
 def initial_vector():
@@ -104,37 +119,71 @@ def initial_vector():
             VoltageDefault]
 
 
-def vector_function(time, current, voltage):
-    # print("Current: ", current)
-    # print("Voltage ", voltage)
-    return [(voltage - current * (resistance_static() + lamp_resistance(current))) / inductance(),
-            -current / capacity()]
+def vector_function(current, voltage):
+    lamp = lamp_resistance(current)
+    return [(voltage - current * (resistance_static() + lamp)) / inductance(),
+            -current / capacity(), lamp]
 
 
-def runge_kutta_4():
+def runge_kutta_2(alpha=1.):
     res_timeline = []
     res_currents = []
     res_voltages = []
+    res_resistances = []
+    res_temperatures = []
     t = time_start()
     prev = initial_vector()
 
     res_timeline.append(t)
     res_currents.append(prev[0])
     res_voltages.append(prev[1])
+    res_resistances.append(lamp_resistance(prev[0]))
+    res_temperatures.append(temperature(0, prev[0]))
     while t < time_end():
-        v1 = vector_function(t, prev[0], prev[1])
+        v0 = vector_function(prev[0], prev[1])
+        v1 = vector_function(prev[0] + TimeStep / (2.0 * alpha),
+                             prev[1] + TimeStep / (2.0 * alpha * v0[1]))
+        prev[0] += TimeStep * ((1. - alpha) * v0[0] + alpha * v1[0])
+        prev[1] += TimeStep * ((1. - alpha) * v0[1] + alpha * v1[1])
+        t += TimeStep
+
+        res_timeline.append(t)
+        res_currents.append(prev[0])
+        res_voltages.append(prev[1])
+        res_resistances.append(lamp_resistance(prev[0]))
+        res_temperatures.append(temperature(0, prev[0]))
+        print(t)
+    return res_timeline, res_currents, res_voltages, res_resistances, res_temperatures
+
+
+def runge_kutta_4():
+    res_timeline = []
+    res_currents = []
+    res_voltages = []
+    res_resistances = []
+    res_temperatures = []
+    t = time_start()
+    prev = initial_vector()
+
+    res_timeline.append(t)
+    res_currents.append(prev[0])
+    res_voltages.append(prev[1])
+    res_resistances.append(lamp_resistance(prev[0]))
+    res_temperatures.append(temperature(0, prev[0]))
+    while t < time_end():
+        v1 = vector_function(prev[0], prev[1])
         k1 = v1[0]
         q1 = v1[1]
 
-        v2 = vector_function(t + TimeStep / 2.0, prev[0] + k1 * TimeStep / 2.0, prev[1] + q1 * TimeStep / 2.0)
+        v2 = vector_function(prev[0] + k1 * TimeStep / 2.0, prev[1] + q1 * TimeStep / 2.0)
         k2 = v2[0]
         q2 = v2[1]
 
-        v3 = vector_function(t + TimeStep / 2.0, prev[0] + k2 * TimeStep / 2.0, prev[1] + q2 * TimeStep / 2.0)
+        v3 = vector_function(prev[0] + k2 * TimeStep / 2.0, prev[1] + q2 * TimeStep / 2.0)
         k3 = v3[0]
         q3 = v3[1]
 
-        v4 = vector_function(t + TimeStep, prev[0] + k3 * TimeStep, prev[1] + q3 * TimeStep)
+        v4 = vector_function(prev[0] + k3 * TimeStep, prev[1] + q3 * TimeStep)
         k4 = v4[0]
         q4 = v4[1]
 
@@ -145,17 +194,7 @@ def runge_kutta_4():
         res_timeline.append(t)
         res_currents.append(prev[0])
         res_voltages.append(prev[1])
+        res_resistances.append(lamp_resistance(prev[0]))
+        res_temperatures.append(temperature(0, prev[0]))
         print(t)
-    return res_timeline, res_currents, res_voltages
-
-
-r = runge_kutta_4()
-plt.subplot(2, 1, 1)
-plt.plot(r[0], r[1])
-plt.ylabel("Current")
-
-plt.subplot(2, 1, 2)
-plt.plot(r[0], r[2])
-plt.ylabel("Voltage")
-plt.xlabel("time")
-plt.show()
+    return res_timeline, res_currents, res_voltages, res_resistances, res_temperatures
