@@ -4,6 +4,8 @@ import model
 
 window = Tk()
 
+TimeStart = DoubleVar()
+TimeEnd = DoubleVar()
 TW = DoubleVar()
 Rk = DoubleVar()
 Le = DoubleVar()
@@ -29,6 +31,8 @@ def build():
     model.ResistanceDefault = Rk.get()
     model.EdgeTemperature = TW.get()
     model.UsingGas = UseLamp.get()
+    model.TimeDefault = TimeStart.get()
+    model.TimeEndDefault = TimeEnd.get()
     if model.Mode == 1:
         r = model.runge_kutta_4()
         show(r)
@@ -45,15 +49,35 @@ def configure_mode(root):
     frame_mode.grid(row=7, column=4, rowspan=5, columnspan=3)
     M.set(model.Mode)
     UseLamp.set(model.UsingGas)
-    mode_lbl = Label(frame_mode, text="Режим")
-    mode_lbl.grid(row=1, column=0)
-    mode_txt = Entry(frame_mode, textvariable=M)
+    mode_txt = Radiobutton(frame_mode, text="RK4", variable=M, value=1)
+    mode_txt.grid(row=1, column=0)
 
-    mode_txt.grid(row=1, column=1)
+    moderk2_txt = Radiobutton(frame_mode, text="RK2", variable=M, value=2)
+    moderk2_txt.grid(row=1, column=1)
+
+    moderk2mid_txt = Radiobutton(frame_mode, text="RK2mid", variable=M, value=3)
+    moderk2mid_txt.grid(row=1, column=2)
+
     use = Checkbutton(frame_mode, text="С трубкой?", variable=UseLamp, onvalue=True, offvalue=False)
     use.grid(row=2, column=0)
     show_button = Button(frame_mode, text="Построить графики", command=build)
     show_button.grid(row=3, column=0)
+
+
+def configure_time(root):
+    frame_start = LabelFrame(root, text="Начальные условия")
+    frame_start.grid(row=12, column=0, rowspan=5, columnspan=3)
+
+    TimeStart.set(model.TimeDefault)
+    TimeEnd.set(model.TimeEndDefault)
+    u0_lbl = Label(frame_start, text="Tbeg")
+    u0_lbl.grid(row=2, column=0)
+    u0_txt = Entry(frame_start, textvariable=TimeStart)
+    u0_txt.grid(row=2, column=1)
+    i0_lbl = Label(frame_start, text="Tend")
+    i0_lbl.grid(row=3, column=0)
+    i0_txt = Entry(frame_start, textvariable=TimeEnd)
+    i0_txt.grid(row=3, column=1)
 
 
 def configure_start(root):
@@ -131,6 +155,7 @@ def configure_gui(root):
     configure_freq(root)
     configure_start(root)
     configure_mode(root)
+    configure_time(root)
 
 
 def show(result):
